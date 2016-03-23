@@ -154,6 +154,16 @@ func (o *Options) Validate() error {
 	msgs = parseProviderInfo(o, msgs)
 
 	if o.PassAccessToken || (o.CookieRefresh != time.Duration(0)) {
+		if o.CookieSecret == "" && o.CookieSecretB64 == "" {
+			msgs = append(msgs, fmt.Sprintf(
+				"cookie_secret or cookie_secret_64 is required "+
+					"to create an AES cipher when "+
+					"pass_access_token == true or "+
+					"cookie_refresh != 0, but both are missing"))
+		}
+	}
+
+	if (o.PassAccessToken || (o.CookieRefresh != time.Duration(0))) && o.CookieSecret != "" {
 		valid_cookie_secret_size := false
 		for _, i := range []int{16, 24, 32} {
 			if len(o.CookieSecret) == i {
@@ -170,7 +180,7 @@ func (o *Options) Validate() error {
 		}
 	}
 
-	if o.CookieSecretB64 != "" {
+	if (o.PassAccessToken || (o.CookieRefresh != time.Duration(0))) && o.CookieSecretB64 != "" {
 		valid_cookie_secret_size := false
 		padded_secret := addPadding(o.CookieSecretB64)
 		for _, i := range []int{24, 32, 44} {
