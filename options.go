@@ -1,6 +1,7 @@
 package main
 
 import (
+	b64 "encoding/base64"
 	"crypto"
 	"fmt"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"math"
 
 	"github.com/18F/hmacauth"
 	"github.com/bitly/oauth2_proxy/providers"
@@ -36,13 +38,14 @@ type Options struct {
 	DisplayHtpasswdForm      bool     `flag:"display-htpasswd-form" cfg:"display_htpasswd_form"`
 	CustomTemplatesDir       string   `flag:"custom-templates-dir" cfg:"custom_templates_dir"`
 
-	CookieName     string        `flag:"cookie-name" cfg:"cookie_name" env:"OAUTH2_PROXY_COOKIE_NAME"`
-	CookieSecret   string        `flag:"cookie-secret" cfg:"cookie_secret" env:"OAUTH2_PROXY_COOKIE_SECRET"`
-	CookieDomain   string        `flag:"cookie-domain" cfg:"cookie_domain" env:"OAUTH2_PROXY_COOKIE_DOMAIN"`
-	CookieExpire   time.Duration `flag:"cookie-expire" cfg:"cookie_expire" env:"OAUTH2_PROXY_COOKIE_EXPIRE"`
-	CookieRefresh  time.Duration `flag:"cookie-refresh" cfg:"cookie_refresh" env:"OAUTH2_PROXY_COOKIE_REFRESH"`
-	CookieSecure   bool          `flag:"cookie-secure" cfg:"cookie_secure"`
-	CookieHttpOnly bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
+	CookieName      string        `flag:"cookie-name" cfg:"cookie_name" env:"OAUTH2_PROXY_COOKIE_NAME"`
+	CookieSecret    string        `flag:"cookie-secret" cfg:"cookie_secret" env:"OAUTH2_PROXY_COOKIE_SECRET"`
+	CookieSecretB64 string        `flag:"cookie-secret-b64" cfg:"cookie_secret_b64" env:"OAUTH2_PROXY_COOKIE_SECRET_B64"`
+	CookieDomain    string        `flag:"cookie-domain" cfg:"cookie_domain" env:"OAUTH2_PROXY_COOKIE_DOMAIN"`
+	CookieExpire    time.Duration `flag:"cookie-expire" cfg:"cookie_expire" env:"OAUTH2_PROXY_COOKIE_EXPIRE"`
+	CookieRefresh   time.Duration `flag:"cookie-refresh" cfg:"cookie_refresh" env:"OAUTH2_PROXY_COOKIE_REFRESH"`
+	CookieSecure    bool          `flag:"cookie-secure" cfg:"cookie_secure"`
+	CookieHttpOnly  bool          `flag:"cookie-httponly" cfg:"cookie_httponly"`
 
 	Upstreams         []string `flag:"upstream" cfg:"upstreams"`
 	SkipAuthRegex     []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
@@ -112,8 +115,8 @@ func (o *Options) Validate() error {
 	if len(o.Upstreams) < 1 {
 		msgs = append(msgs, "missing setting: upstream")
 	}
-	if o.CookieSecret == "" {
-		msgs = append(msgs, "missing setting: cookie-secret")
+	if o.CookieSecret == "" && o.CookieSecretB64 == "" {
+		msgs = append(msgs, "missing setting: cookie-secret or cookie-secret-b64")
 	}
 	if o.ClientID == "" {
 		msgs = append(msgs, "missing setting: client-id")
@@ -167,6 +170,33 @@ func (o *Options) Validate() error {
 		}
 	}
 
+	if o.CookieSecretB64 != "" {
+		valid_cookie_secret_size := false
+		padded_secret := addPadding(o.CookieSecretB64)
+		for _, i := range []int{24, 32, 44} {
+			if len(padded_secret) == i {
+				valid_cookie_secret_size = true
+			}
+		}
+		if valid_cookie_secret_size == false {
+			msgs = append(msgs, fmt.Sprintf(
+				"cookie_secret_b64 must be 24, 32, or 44 characters (with padding) "+
+					"to create an AES cipher of 16, 24, or 32 bytes when "+
+					"pass_access_token == true or "+
+					"cookie_refresh != 0, but is %d bytes",
+				len(o.CookieSecret)))
+		}
+	}
+
+	if o.CookieSecretB64 != "" {
+		padded_secret := addPadding(o.CookieSecretB64)
+		_, err := b64.URLEncoding.DecodeString(padded_secret)
+		if err != nil {
+			msgs = append(msgs, fmt.Sprintf(
+				"cookie_secret_b64 must be a valid (urlsafe) base64 encoded value"))
+		}
+	}
+
 	if o.CookieRefresh >= o.CookieExpire {
 		msgs = append(msgs, fmt.Sprintf(
 			"cookie_refresh (%s) must be less than "+
@@ -194,6 +224,19 @@ func (o *Options) Validate() error {
 			strings.Join(msgs, "\n  "))
 	}
 	return nil
+}
+
+func GetCookieSecretBytes(o *Options) ([]byte, error) {
+	var err error
+	var secret_string []byte
+	switch {
+	case o.CookieSecretB64 != "":
+		secret_string, err = b64.URLEncoding.DecodeString(addPadding(o.CookieSecretB64))
+	case o.CookieSecret != "":
+		err = nil
+		secret_string = []byte(o.CookieSecret)
+	}
+	return secret_string, err
 }
 
 func parseProviderInfo(o *Options, msgs []string) []string {
@@ -247,4 +290,17 @@ func parseSignatureKey(o *Options, msgs []string) []string {
 		o.signatureData = &SignatureData{hash, secretKey}
 	}
 	return msgs
+}
+
+func addPadding (secret string) (string) {
+	var padded_secret string
+
+	mod_4 := math.Mod(float64(len(secret)), 4.0)
+	switch {
+	case mod_4 == 0:
+		padded_secret = secret
+	case mod_4 > 0:
+		padded_secret = secret + strings.Repeat("=", int(4-mod_4))
+	}
+	return padded_secret
 }

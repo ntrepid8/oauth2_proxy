@@ -35,7 +35,7 @@ func TestNewOptions(t *testing.T) {
 
 	expected := errorMsg([]string{
 		"missing setting: upstream",
-		"missing setting: cookie-secret",
+		"missing setting: cookie-secret or cookie-secret-b64",
 		"missing setting: client-id",
 		"missing setting: client-secret"})
 	assert.Equal(t, expected, err.Error())
@@ -165,6 +165,31 @@ func TestCookieRefreshMustBeLessThanCookieExpire(t *testing.T) {
 	assert.NotEqual(t, nil, o.Validate())
 
 	o.CookieRefresh -= time.Duration(1)
+	assert.Equal(t, nil, o.Validate())
+}
+
+func TestBase64CookieSecret(t *testing.T) {
+	o := testOptions()
+	assert.Equal(t, nil, o.Validate())
+
+	// 32 byte, base64 (urlsafe) encoded key
+	o.CookieSecretB64 = "yHBw2lh2Cvo6aI_jn_qMTr-pRAjtq0nzVgDJNb36jgQ="
+	assert.Equal(t, nil, o.Validate())
+
+	// 32 byte, base64 (urlsafe) encoded key, w/o padding
+	o.CookieSecretB64 = "yHBw2lh2Cvo6aI_jn_qMTr-pRAjtq0nzVgDJNb36jgQ"
+	assert.Equal(t, nil, o.Validate())
+
+	// 24 byte, base64 (urlsafe) encoded key
+	o.CookieSecretB64 = "Kp33Gj-GQmYtz4zZUyUDdqQKx5_Hgkv3"
+	assert.Equal(t, nil, o.Validate())
+
+	// 16 byte, base64 (urlsafe) encoded key
+	o.CookieSecretB64 = "LFEqZYvYUwKwzn0tEuTpLA=="
+	assert.Equal(t, nil, o.Validate())
+
+	// 16 byte, base64 (urlsafe) encoded key, w/o padding
+	o.CookieSecretB64 = "LFEqZYvYUwKwzn0tEuTpLA"
 	assert.Equal(t, nil, o.Validate())
 }
 

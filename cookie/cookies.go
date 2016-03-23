@@ -84,9 +84,30 @@ type Cipher struct {
 	cipher.Block
 }
 
+func SecretBytes(secret interface{}) ([]byte, error) {
+	switch s := secret.(type) {
+	case []byte:
+		return s, nil
+	case string:
+		return []byte(s), nil
+	}
+	return nil, fmt.Errorf("failed to get []byte from: %s", secret)
+}
+
 // NewCipher returns a new aes Cipher for encrypting cookie values
-func NewCipher(secret string) (*Cipher, error) {
-	c, err := aes.NewCipher([]byte(secret))
+func NewCipher(secret interface{}) (*Cipher, error) {
+	var err error
+	var c cipher.Block
+	var secret_bytes []byte
+
+	// convert to []byte if a string is passed
+	secret_bytes, err = SecretBytes(secret)
+	if err != nil {
+		return nil, err
+	}
+
+	// generate the new cipher
+	c, err = aes.NewCipher(secret_bytes)
 	if err != nil {
 		return nil, err
 	}
